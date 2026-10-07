@@ -48,7 +48,7 @@ module BenchmarkRunner
     end
 
     # Build output text string with metadata, table, and legend
-    def build_output_text(ruby_descriptions, table, format, bench_failures, include_rss: false, include_gc: false, include_pvalue: false, gc_tables: nil, sections: nil)
+    def build_output_text(ruby_descriptions, table, format, bench_failures, include_rss: false, include_gc: false, include_pvalue: false, gc_tables: nil, memory_tables: nil, sections: nil)
       base_name, *other_names = ruby_descriptions.keys
 
       output_str = +""
@@ -58,24 +58,16 @@ module BenchmarkRunner
       end
 
       output_str << "\n"
-      sections ||= [{ table: table, format: format, failures: bench_failures, include_gc: include_gc, gc_tables: gc_tables }]
+      sections ||= [{ table: table, format: format, failures: bench_failures, include_gc: include_gc, gc_tables: gc_tables, memory_tables: memory_tables }]
       has_gc_summary = sections.any? { |section| section[:include_gc] && section[:gc_tables] }
+      has_memory_summary = sections.any? { |section| section[:memory_tables] }
       sections.each do |section|
         title = section[:title]
         output_str << "#{title}:\n" if title
         output_str << TableFormatter.new(section[:table], section[:format], section.fetch(:failures, {})).to_s + "\n"
 
-        next unless section[:include_gc] && section[:gc_tables]
-
-        section[:gc_tables].each do |gc_table|
-          qualifiers = [gc_table[:scope], title].compact
-          output_str << gc_table[:name]
-          output_str << " (#{qualifiers.join(', ')})" unless qualifiers.empty?
-          output_str << ":\n"
-          output_str << TableFormatter.new(gc_table[:rows], Array.new(gc_table[:rows].first.size, "%s"), {}).to_s
-          output_str << "Hidden columns (zero or N/A in every row): #{gc_table[:hidden].join(', ')}\n" unless gc_table[:hidden].empty?
-          output_str << "\n"
-        end
+        append_tables(output_str, section[:gc_tables], title) if section[:include_gc]
+        append_tables(output_str, section[:memory_tables], title)
       end
 
       unless other_names.empty?
@@ -92,6 +84,9 @@ module BenchmarkRunner
           output_str << "- gc/iter, mark/iter, and sweep/iter compare total GC (or phase) time per benchmark iteration, so they include both per-GC cost and GC frequency changes.\n"
           output_str << "- gc/GC, mark/GC, and sweep/GC divide average GC (or phase) time by the same run's GCs/iter count; they are not complete per-cycle attribution of process-wide GC.\n"
           output_str << "- GC counts show #{base_name} → comparison values, not ratios. Rows with no GC activity are omitted.\n"
+        end
+        if has_memory_summary
+          output_str << "- Scenario memory shows #{base_name} → comparison values, not ratios. Lower is better.\n"
         end
         if include_pvalue
           output_str << "- ***: p < 0.001, **: p < 0.01, *: p < 0.05 (Welch's t-test)\n"
@@ -122,8 +117,22 @@ module BenchmarkRunner
         output_str << "- Per-GC ratios divide by recorded GC counts, not complete process-wide GC cycles. Phase times are integer milliseconds; total GC time is kept at nanosecond resolution in the raw worker samples.\n"
       end
 
+      unless sections.flat_map { |section| Array(section[:memory_tables]) }.empty?
+        output_str << "Scenario memory note:\n"
+        MEMORY_NOTES.each { |note| output_str << "#{note}\n" }
+      end
+
       output_str
     end
+
+    # Scenario memory notes go next to the Ractor GC notes, since both describe
+    # what the extra tables of a Ractor run do and do not cover.
+    MEMORY_NOTES = [
+      "- med and mean are the median and the mean of the same per-trial samples.",
+      "- retained: the RSS after a full GC at the end of the scenario, minus the process RSS before its first trial. It counts whatever the scenario left resident, not only the worker Ractors' memory.",
+      "- peak: the highest RSS sampled during the scenario block (RACTOR_MEM_PEAK_SAMPLE_INTERVAL, default 5ms), so a spike between samples can be missed.",
+      "- Each Ractor count runs in its own process, so its rows share one baseline across that count's trials.",
+    ].freeze
 
     # Render a graph from JSON benchmark data
     def render_graph(json_path)
@@ -154,6 +163,19 @@ module BenchmarkRunner
     end
 
     private
+
+    # Render the extra per-section tables (GC, scenario memory) below a section.
+    def append_tables(output_str, tables, title)
+      Array(tables).each do |extra_table|
+        qualifiers = [extra_table[:scope], title].compact
+        output_str << extra_table[:name]
+        output_str << " (#{qualifiers.join(', ')})" unless qualifiers.empty?
+        output_str << ":\n"
+        output_str << TableFormatter.new(extra_table[:rows], Array.new(extra_table[:rows].first.size, "%s"), {}).to_s
+        output_str << "Hidden columns (zero or N/A in every row): #{extra_table[:hidden].join(', ')}\n" unless extra_table[:hidden].empty?
+        output_str << "\n"
+      end
+    end
 
     def free_file_no(directory)
       (1..).each do |file_no|

@@ -134,8 +134,6 @@ def run_benchmark_gc(bench_itrs, block, ractor_args, gc_config:)
     group["gc_controller_samples"] = [] if rs > 0
     series = Hash.new { |h,k| h[k] = [] }
 
-    warmup_itrs.times { run_ractor_gc_iteration(rs, ractor_args, &block) }
-
     num_itrs = 0
     while num_itrs < bench_itrs
       num_itrs += 1
@@ -300,9 +298,7 @@ def run_scenario_benchmark(bench_itrs, gc_config:, &scenario)
     gc_by_ractors[count] = group.merge(series)
   end
 
-  medians = counts.to_h do |count|
-    [count, { retained: Stats.new(memory[count][:retained]).median, peak: Stats.new(memory[count][:peak]).median }]
-  end
+  medians = counts.to_h { |count| [count, memory_summary(memory[count])] }
   print_memory_metrics(medians)
 
   extra = {
@@ -357,8 +353,16 @@ def gc_settle
   sleep SETTLE_SLEEP
 end
 
+STATM_FILE = "/proc/self/statm"
+STATM_AVAILABLE = File.exist?(STATM_FILE)
+
+# The resident set size right now. /proc/self/statm is the cheapest source, which
+# matters because the peak sampler reads it every PEAK_SAMPLE_INTERVAL. Off Linux
+# it does not exist, so fall back to get_rss, which shells out to ps.
 def statm_rss
-  PAGE_SIZE * Integer(File.read("/proc/self/statm").split(" ")[1])
+  return get_rss unless STATM_AVAILABLE
+
+  PAGE_SIZE * Integer(File.read(STATM_FILE).split(" ")[1])
 end
 
 def measure_peak_rss
@@ -383,6 +387,18 @@ end
 
 def format_mib(bytes)
   "%.1fMiB" % (bytes / 2**20.0)
+end
+
+# Summarizes one count's per-trial samples. The median keys stay at their
+# original names so existing readers keep working, with the mean of the same
+# samples next to them. No dispersion measure: retained RSS drifts upward
+# across a count's trials by construction, so spread here is not noise.
+def memory_summary(samples)
+  samples.each_with_object({}) do |(metric, values), summary|
+    stats = Stats.new(values)
+    summary[metric] = stats.median
+    summary[:"#{metric}_mean"] = stats.mean
+  end
 end
 
 def print_memory_metrics(medians)

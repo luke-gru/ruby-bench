@@ -119,7 +119,7 @@ module BenchmarkRunner
         zjit_stats: args.zjit_stats,
         row_layout: csv_layout
       )
-      table, format, gc_tables = builder.build
+      table, format, gc_tables, = builder.build
 
       output_path = BenchmarkRunner.output_path(args.out_path, out_override: args.out_override)
 
@@ -202,7 +202,7 @@ module BenchmarkRunner
         zjit_stats: args.zjit_stats,
         row_layout: layout
       )
-      table, format, gc_tables = builder.build
+      table, format, gc_tables, memory_tables = builder.build
 
       section = {
         title: harness,
@@ -211,6 +211,7 @@ module BenchmarkRunner
         failures: slice_failures(bench_failures, bench_names),
         include_gc: builder.include_gc?,
         gc_tables: gc_tables,
+        memory_tables: memory_tables,
       }
       if ResultsTableBuilder.ractor_gc_data?(section_data)
         section[:gc_scope] = 'ractor-local-workload'
