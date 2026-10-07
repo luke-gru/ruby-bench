@@ -390,14 +390,18 @@ def format_mib(bytes)
 end
 
 # Summarizes one count's per-trial samples. The median keys stay at their
-# original names so existing readers keep working, with the mean of the same
-# samples next to them. No dispersion measure: retained RSS drifts upward
-# across a count's trials by construction, so spread here is not noise.
+# original names so existing readers keep working, with the mean and the
+# largest of the same samples next to them; the peak table column reports the
+# largest. No dispersion measure: retained RSS drifts upward across a count's
+# trials by construction, so spread here is not noise.
 def memory_summary(samples)
   samples.each_with_object({}) do |(metric, values), summary|
     stats = Stats.new(values)
-    summary[metric] = stats.median
-    summary[:"#{metric}_mean"] = stats.mean
+    # Bytes. An even-trial median and every mean come back Float; round them,
+    # since a fraction of a byte is not a measurement.
+    summary[metric] = stats.median.round
+    summary[:"#{metric}_mean"] = stats.mean.round
+    summary[:"#{metric}_max"] = values.max
   end
 end
 

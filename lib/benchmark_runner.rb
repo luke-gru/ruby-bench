@@ -128,9 +128,8 @@ module BenchmarkRunner
     # Scenario memory notes go next to the Ractor GC notes, since both describe
     # what the extra tables of a Ractor run do and do not cover.
     MEMORY_NOTES = [
-      "- med and mean are the median and the mean of the same per-trial samples.",
-      "- retained: the RSS after a full GC at the end of the scenario, minus the process RSS before its first trial. It counts whatever the scenario left resident, not only the worker Ractors' memory.",
-      "- peak: the highest RSS sampled during the scenario block (RACTOR_MEM_PEAK_SAMPLE_INTERVAL, default 5ms), so a spike between samples can be missed.",
+      "- retained med and retained mean are the median and the mean over trials of the RSS after a full GC at the end of the scenario, minus the process RSS before its first trial. They count whatever the scenario left resident, not only the worker Ractors' memory.",
+      "- peak: the highest RSS any trial reached during the scenario block, sampled every RACTOR_MEM_PEAK_SAMPLE_INTERVAL (default 5ms), so a spike between samples can be missed.",
       "- Each Ractor count runs in its own process, so its rows share one baseline across that count's trials.",
     ].freeze
 

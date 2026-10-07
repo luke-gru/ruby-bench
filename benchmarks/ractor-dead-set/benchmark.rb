@@ -1,6 +1,8 @@
 # Multiple ractors each build a large live set and then terminate.
 # The final live sets of dead ractors are garbage after death. Measured
 # retention shows how much of that memory a full GC fails to reclaim.
+# 
+# Ex: RUBY_BENCH_RACTORS=1,2,4,6,8 ./run_benchmarks.rb --category=ractor --ractor-gc --chruby="ctl::ruby_ctl --yjit" --chruby="exp::ruby_exp --yjit" ractor-dead-set
 
 Warning[:experimental] = false
 

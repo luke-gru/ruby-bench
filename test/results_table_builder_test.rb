@@ -601,13 +601,14 @@ describe ResultsTableBuilder do
   describe 'scenario memory table' do
     MIB = 1024 * 1024
 
-    # The means are offset from the medians so the two columns cannot be
+    # The mean and the max are offset from the median so the columns cannot be
     # confused for each other.
     def scenario_blob(count, retained_mib, peak_mib, means: true)
       summary = { 'retained' => retained_mib * MIB, 'peak' => peak_mib * MIB }
       if means
         summary['retained_mean'] = (retained_mib + 1) * MIB
         summary['peak_mean'] = (peak_mib + 1) * MIB
+        summary['peak_max'] = (peak_mib + 2) * MIB
       end
       {
         'warmup' => [],
@@ -643,9 +644,9 @@ describe ResultsTableBuilder do
       assert_equal 'Scenario memory', memory[:name]
       assert_equal 'process RSS, MiB', memory[:scope]
       assert_equal [
-        ['bench', 'ractors', 'retained med', 'retained mean', 'peak med', 'peak mean'],
-        [name, '1', '   4.0  →     5.0', '   5.0  →     6.0', '  30.0  →    32.0', '  31.0  →    33.0'],
-        [name, '2', '   8.0  →    10.0', '   9.0  →    11.0', '  60.0  →    64.0', '  61.0  →    65.0'],
+        ['bench', 'ractors', 'retained med', 'retained mean', 'peak'],
+        [name, '1', '   4.0  →     5.0', '   5.0  →     6.0', '  32.0  →    34.0'],
+        [name, '2', '   8.0  →    10.0', '   9.0  →    11.0', '  62.0  →    66.0'],
       ], memory[:rows]
       assert_equal [], memory[:hidden]
     end
@@ -666,13 +667,13 @@ describe ResultsTableBuilder do
       _table, _format, _gc_tables, memory_tables = builder.build
 
       assert_equal [
-        ['bench', 'ractors', 'retained med', 'retained mean', 'peak med', 'peak mean'],
-        [name, '1', '7.0', '8.0', '40.0', '41.0'],
-        [name, '2', '14.0', '15.0', '80.0', '81.0'],
+        ['bench', 'ractors', 'retained med', 'retained mean', 'peak'],
+        [name, '1', '7.0', '8.0', '42.0'],
+        [name, '2', '14.0', '15.0', '82.0'],
       ], memory_tables.first[:rows]
     end
 
-    it 'hides the mean columns for data recorded before the harness kept means' do
+    it 'hides the columns that data recorded before the harness kept them cannot fill' do
       name = 'ractor-dead-set'
       counts = [1, 2]
       bench_data = {
@@ -687,11 +688,11 @@ describe ResultsTableBuilder do
       memory = builder.build[3].first
 
       assert_equal [
-        ['bench', 'ractors', 'retained med', 'peak med'],
-        [name, '1', '7.0', '40.0'],
-        [name, '2', '14.0', '80.0'],
+        ['bench', 'ractors', 'retained med'],
+        [name, '1', '7.0'],
+        [name, '2', '14.0'],
       ], memory[:rows]
-      assert_equal ['retained mean', 'peak mean'], memory[:hidden]
+      assert_equal ['retained mean', 'peak'], memory[:hidden]
     end
 
     it 'builds no memory table for benchmarks without scenario memory data' do

@@ -390,7 +390,7 @@ describe 'Ractor GC harness' do
     end
   end
 
-  it 'records the mean of the memory samples next to the median' do
+  it 'records the mean and the largest of the memory samples next to the median' do
     env = SCENARIO_NO_GC_ENV.merge('MIN_BENCH_ITRS' => '3', 'MAX_BENCH_ITRS' => '3')
     run_workload(SLEEPING_SCENARIO_BODY, env: env) do |stdout, stderr, status, result_path|
       assert status.success?, "workload failed:\n#{stdout}\n#{stderr}"
@@ -407,7 +407,9 @@ describe 'Ractor GC harness' do
         mean = values.sum(0.0) / values.length
 
         assert_equal sorted[1], summary.fetch(metric), "#{metric} stays the median"
-        assert_in_delta mean, summary.fetch("#{metric}_mean"), 1e-6
+        assert_equal mean.round, summary.fetch("#{metric}_mean")
+        assert_equal sorted.last, summary.fetch("#{metric}_max")
+        summary.each_value { |v| assert_kind_of Integer, v, "#{metric} is whole bytes" }
         refute summary.key?("#{metric}_stddev"), "#{metric} dispersion is not recorded"
       end
     end

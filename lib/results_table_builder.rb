@@ -280,27 +280,27 @@ class ResultsTableBuilder
     rows
   end
 
-  # Median and mean of the same per-trial samples, in adjacent columns. Data
-  # written before the harness recorded means has no <metric>_mean key, so those
-  # columns come out empty and assemble_table drops them.
-  MEMORY_METRICS = %w[retained peak].freeze
-
+  # Retention gets both the median and the mean of the per-trial samples, since
+  # the two diverge when one trial retains much more than the rest. Peak gets
+  # the largest sample instead: the question a peak answers is how high the
+  # scenario ever went, not how high a typical trial went. Data written before
+  # the harness recorded these keys leaves the column empty, and assemble_table
+  # drops it. The peak column reads peak_max, not the peak median the JSON
+  # keeps under 'peak'.
   def memory_absolute_columns
-    MEMORY_METRICS.flat_map do |metric|
-      [
-        ["#{metric} med", ->(medians) { mib_cell(medians[metric]) }],
-        ["#{metric} mean", ->(medians) { mib_cell(medians["#{metric}_mean"]) }],
-      ]
-    end
+    [
+      ["retained med", ->(medians) { mib_cell(medians['retained']) }],
+      ["retained mean", ->(medians) { mib_cell(medians['retained_mean']) }],
+      ["peak", ->(medians) { mib_cell(medians['peak_max']) }],
+    ]
   end
 
   def memory_comparison_columns
-    MEMORY_METRICS.flat_map do |metric|
-      [
-        ["#{metric} med", ->(base, other) { mib_pair_cell(base[metric], other[metric]) }],
-        ["#{metric} mean", ->(base, other) { mib_pair_cell(base["#{metric}_mean"], other["#{metric}_mean"]) }],
-      ]
-    end
+    [
+      ["retained med", ->(base, other) { mib_pair_cell(base['retained'], other['retained']) }],
+      ["retained mean", ->(base, other) { mib_pair_cell(base['retained_mean'], other['retained_mean']) }],
+      ["peak", ->(base, other) { mib_pair_cell(base['peak_max'], other['peak_max']) }],
+    ]
   end
 
   # The medians of the process that ran this row's Ractor count. Each count runs

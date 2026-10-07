@@ -245,8 +245,8 @@ describe BenchmarkRunner::CLI do
             'ractor_mode' => 'scenario',
             'bench_by_ractors' => { '1' => [1.0], '2' => [2.0] },
             'results_by_ractors' => {
-              '1' => { 'ractor_mem_medians' => { '1' => { 'retained' => 4 * mib, 'retained_mean' => 5 * mib, 'peak' => 30 * mib, 'peak_mean' => 31 * mib } } },
-              '2' => { 'ractor_mem_medians' => { '2' => { 'retained' => 9 * mib, 'retained_mean' => 10 * mib, 'peak' => 55 * mib, 'peak_mean' => 56 * mib } } },
+              '1' => { 'ractor_mem_medians' => { '1' => { 'retained' => 4 * mib, 'retained_mean' => 5 * mib, 'peak' => 30 * mib, 'peak_max' => 32 * mib } } },
+              '2' => { 'ractor_mem_medians' => { '2' => { 'retained' => 9 * mib, 'retained_mean' => 10 * mib, 'peak' => 55 * mib, 'peak_max' => 57 * mib } } },
             }
           }
         }
@@ -257,16 +257,16 @@ describe BenchmarkRunner::CLI do
 
       assert_equal 1, memory.size
       assert_equal [
-        ['bench', 'ractors', 'retained med', 'retained mean', 'peak med', 'peak mean'],
-        ['ractor-dead-set', '1', '4.0', '5.0', '30.0', '31.0'],
-        ['ractor-dead-set', '2', '9.0', '10.0', '55.0', '56.0'],
+        ['bench', 'ractors', 'retained med', 'retained mean', 'peak'],
+        ['ractor-dead-set', '1', '4.0', '5.0', '32.0'],
+        ['ractor-dead-set', '2', '9.0', '10.0', '57.0'],
       ], memory.first[:rows]
 
       output = BenchmarkRunner.build_output_text({ 'ruby' => 'ruby 4.1.0dev' }, nil, nil, {}, sections: sections)
       assert_match(/Scenario memory \(process RSS, MiB\):/, output)
       assert_match(/Scenario memory note:/, output)
-      assert_match(/med and mean are the median and the mean of the same per-trial samples/, output)
-      assert_match(/retained: the RSS after a full GC/, output)
+      assert_match(/retained med and retained mean are the median and the mean over trials/, output)
+      assert_match(/peak: the highest RSS any trial reached/, output)
     end
 
     it 'renders no scenario memory table when the run recorded none' do
