@@ -119,7 +119,7 @@ module BenchmarkRunner
         zjit_stats: args.zjit_stats,
         row_layout: csv_layout
       )
-      table, format, gc_table, gc_format = builder.build
+      table, format, gc_tables = builder.build
 
       output_path = BenchmarkRunner.output_path(args.out_path, out_override: args.out_override)
 
@@ -133,7 +133,7 @@ module BenchmarkRunner
 
       # Save the output in a text file that we can easily refer to
       output_sections = build_output_sections(ruby_descriptions.keys, bench_data, bench_harnesses, bench_failures)
-      output_str = BenchmarkRunner.build_output_text(ruby_descriptions, table, format, bench_failures, include_rss: args.rss, include_gc: builder.include_gc?, include_pvalue: args.pvalue, gc_table: gc_table, gc_format: gc_format, sections: output_sections)
+      output_str = BenchmarkRunner.build_output_text(ruby_descriptions, table, format, bench_failures, include_rss: args.rss, include_gc: builder.include_gc?, include_pvalue: args.pvalue, gc_tables: gc_tables, sections: output_sections)
       out_txt_path = output_path + ".txt"
       File.open(out_txt_path, "w") { |f| f.write output_str }
 
@@ -202,7 +202,7 @@ module BenchmarkRunner
         zjit_stats: args.zjit_stats,
         row_layout: layout
       )
-      table, format, gc_table, gc_format = builder.build
+      table, format, gc_tables = builder.build
 
       section = {
         title: harness,
@@ -210,11 +210,21 @@ module BenchmarkRunner
         format: format,
         failures: slice_failures(bench_failures, bench_names),
         include_gc: builder.include_gc?,
-        gc_table: gc_table,
-        gc_format: gc_format,
+        gc_tables: gc_tables,
       }
-      section[:gc_scope] = 'ractor-local-workload' if ResultsTableBuilder.ractor_gc_data?(section_data)
+      if ResultsTableBuilder.ractor_gc_data?(section_data)
+        section[:gc_scope] = 'ractor-local-workload'
+        section[:ractor_gc_modes] = ractor_gc_modes(section_data)
+      end
       section
+    end
+
+    def ractor_gc_modes(section_data)
+      blobs = section_data.values.flat_map(&:values)
+      blobs.filter_map do |blob|
+        next unless blob.is_a?(Hash) && blob['gc_scope'] == 'ractor-local-workload'
+        blob['ractor_mode'] == 'scenario' ? :scenario : :worker
+      end.uniq
     end
 
     def sorted_benchmark_names(executable_names, bench_data)

@@ -188,6 +188,67 @@ each count, with the RSS and JIT stats of that count's process.
 When you run a benchmark directly with `-Iharness-ractor`, the harness runs
 all counts in one process, one count after another.
 
+### Ractor Scenario Benchmarks
+
+By default, `harness-ractor` spawns the worker Ractors and runs the benchmark
+block inside each of them. A benchmark that calls
+`run_benchmark(n, scenario: true)` uses scenario mode instead. The harness
+calls the block one time per trial in the main Ractor, with the Ractor count as
+its argument. The block spawns and coordinates its own Ractors. When the block
+returns a proc, the harness calls the proc after the retention measurement.
+
+Scenario mode skips Ractor count 0 and runs no warmup. For each trial, the
+harness records:
+
+* the time of the block call, which includes all work in the block;
+* the retained RSS: the RSS after a full GC, minus the RSS of the process
+  before the first trial;
+* the peak RSS: the highest RSS that the harness reads just before the block
+  call, every 5 ms during it (`RACTOR_MEM_PEAK_SAMPLE_INTERVAL`), and just
+  after it.
+
+Three benchmarks use scenario mode to measure pathological memory behaviour
+with multiple ractors, for GC work that reclaims ractor-local memory:
+
+* **`ractor-dead-set`** - Every ractor builds a large live set and terminates.
+  Retention shows how much of the dead ractors' final live sets a full GC
+  leaves resident.
+* **`ractor-idle-garbage`** - Every ractor builds a large set, drops all
+  references, then idles without allocating. The garbage cannot be swept
+  while the ractor idles.
+* **`ractor-msg-backlog`** - Unshareable payloads flood the queues of gated
+  consumer ractors, duplicating the payload data per consumer. Its time
+  includes the gate sleep (`RACTOR_BACKLOG_GATE_SLEEP`, default 1 second).
+
+```bash
+ruby -Iharness-ractor benchmarks/ractor-dead-set/benchmark.rb
+```
+
+The harness prints `BENCH_METRIC retained_mib=<worst count median>` and
+`BENCH_METRIC peak_mib=...` lines, plus one pair per ractor count. The JSON
+fields `ractor_mem_medians` and `ractor_mem_samples` hold the same data. The
+summary table of `run_benchmarks.rb` does not show it. The ractor counts and
+trials are controlled with `RUBY_BENCH_RACTORS` (default `1,2,4,6,8`) and
+`MIN_BENCH_ITRS` (default 3 for these benchmarks).
+
+The harness collects with `GC.start(global: true)` when the target Ruby's
+`GC.start` accepts the `global:` keyword. Some Ruby 4.1 builds do not accept it.
+On a target with Ractor-local GC, a plain `GC.start` collects only the main
+Ractor's object space. The JSON field `ractor_mem_settle` records `global` or
+`default`.
+
+With `--ractor-gc` (`RUBY_BENCH_RACTOR_GC=1`), the harness cannot see which
+Ractors are workers. A scenario wraps each worker body in
+`measure_worker_gc { ... }`, which returns `[result, sample]`. The main Ractor
+passes each sample to `record_worker_gc(worker_index, sample)`. A trial fails
+when its recorded worker indexes are not `0...count`.
+
+Worker samples cover only the workers' own object spaces during the scenario.
+They do not include allocation by the main Ractor, such as the payloads that
+`ractor-msg-backlog` sends. They also do not include the GCs that the harness
+runs to measure retention. The JSON field `gc_controller_samples` covers the
+main Ractor during the scenario.
+
 ## Ruby options
 
 By default, ruby-bench benchmarks the Ruby used for `run_benchmarks.rb`.
@@ -326,7 +387,8 @@ process's lifetime peak from `getrusage`.
 ## Measuring Ractor GC activity
 
 The `--ractor-gc` option of `run_benchmarks.rb` collects Ractor-local GC
-metrics for benchmarks that use the Ractor harness (`--category ractor`).
+metrics for benchmarks that use the Ractor harness (`--category ractor`),
+in both the per-worker mode and scenario mode.
 The target must use Ruby 4.1 or newer with per-Ractor global GC attribution
 ([ruby/ruby#19147](https://github.com/ruby/ruby/pull/19147)); older targets
 fail before warmup.
@@ -340,15 +402,21 @@ Ractor's own object space. The JSON output records the scope as
 `gc_scope: "ractor-local-workload"`, `gc_stat_scope: "ractor-local"`, and
 `gc_measure_total_time_scope: "ractor-local"`, plus the target's `gc_config`.
 
-The summary table adds these columns:
+The text summary shows GC data in separate tables after the timing table.
+A single-executable report has one `GC summary` table. A comparison report
+has a `GC time ratios` table (base/comparison) and a `GC counts` table
+(base → comparison). A table hides a column that has no data in any row and
+lists the hidden columns below the table. A ratio column has no data when it
+is `N/A` in every row; a `0.000` ratio stays visible. Any other column has no
+data when it is zero or `N/A` in every row.
 
-* `(worker sum)` columns add the Ractor-local counters of the sampled
-  workers of each iteration. `GCs/iter` is the sum of `minor/iter`,
+* Tables marked `worker sum` add the Ractor-local counters and GC times of
+  the sampled workers of each iteration. `GCs/iter` is the sum of `minor/iter`,
   `major/iter`, and `global/iter`; a global cycle counts under `global` on
   the Ractor that initiated it, not under `major`. Single-executable reports
   also show `GC ms/worker`, which divides each iteration's worker-sum GC
   time by its sampled worker count, then averages.
-* `controller compacts/iter*` shows the main Ractor's
+* `compacts*` shows the main Ractor's
   `GC.stat(:compact_count)` delta. Every global compacting cycle increments
   it in every object space, so it is not summed across workers.
 
