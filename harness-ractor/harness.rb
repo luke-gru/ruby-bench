@@ -35,6 +35,8 @@ MAX_ITERS = Integer(ENV.fetch("MAX_BENCH_ITRS", 5))
 WORKER_GC_SAMPLES = []
 SETTLE_SLEEP = Float(ENV.fetch("RACTOR_MEM_SETTLE_SLEEP", 0.1))
 PEAK_SAMPLE_INTERVAL = Float(ENV.fetch("RACTOR_MEM_PEAK_SAMPLE_INTERVAL", 0.005))
+IDLE_STEPS = Integer(ENV.fetch("RACTOR_MEM_IDLE_STEPS", 3))
+IDLE_STEP_SECONDS = Float(ENV.fetch("RACTOR_MEM_IDLE_STEP_SECONDS", 1))
 GLOBAL_GC_START = GC.method(:start).parameters.include?([:key, :global])
 
 def run_benchmark(num_itrs_hint, ractor_args: [], scenario: false, &block)
@@ -241,6 +243,13 @@ def run_scenario_benchmark(bench_itrs, gc_config:, &scenario)
   raise ArgumentError, "a scenario benchmark needs a Ractor count above 0" if counts.empty?
   bench_itrs = 1 if bench_itrs < 1
 
+  # Park a Ractor for the whole run so the process never drops back to a single
+  # objspace when a scenario's workers die. Otherwise gc_settle's second GC.start
+  # runs as a single-objspace local major GC, which can release pages a
+  # multi-Ractor process would keep, and retained RSS would not show the
+  # difference. Started before base_rss so its own objspace is in the baseline.
+  keepalive = Ractor.new { Ractor.receive }
+
   gc_settle
   base_rss = get_rss
   puts "base RSS: #{format_mib(base_rss)}"
@@ -280,10 +289,19 @@ def run_scenario_benchmark(bench_itrs, gc_config:, &scenario)
     gc_by_ractors[count] = group.merge(series)
   end
 
+  # Still inside the keepalive's lifetime, so the idle phase runs as the same
+  # multi-Ractor process the trials did.
+  idle_retained = measure_idle_retained(base_rss)
+
+  keepalive.send(nil)
+  keepalive.join
+
   print_gc_legend if RACTOR_GC_ENABLED
 
   medians = counts.to_h { |count| [count, memory_summary(memory[count])] }
   print_memory_metrics(medians)
+
+  pp GC.stat
 
   extra = {
     warmup_by_ractors: counts.to_h { |count| [count, []] },
@@ -291,12 +309,43 @@ def run_scenario_benchmark(bench_itrs, gc_config:, &scenario)
     ractor_mode: "scenario",
     ractor_mem_settle: GLOBAL_GC_START ? "global" : "default",
     ractor_mem_malloc_trim: MallocTrim.available?,
+    ractor_mem_keepalive: true,
     ractor_mem_base_rss: base_rss,
     ractor_mem_medians: medians,
     ractor_mem_samples: memory,
+    ractor_mem_idle_step_seconds: IDLE_STEP_SECONDS,
+    ractor_mem_idle_retained: idle_retained,
   }
   extra.merge!(ractor_gc_results(gc_by_ractors, gc_config)) if RACTOR_GC_ENABLED
   return_results([], times.values.flatten, **extra)
+end
+
+# Retained RSS is read right after a settling GC, before the GC has had any idle
+# time to give memory back (the page pool only advises and unmaps bodies that have
+# sat unused for a while). So after the last trial, let the process idle for
+# IDLE_STEPS steps of IDLE_STEP_SECONDS, reading RSS after each. A thread keeps a
+# trickle of allocation going meanwhile, so GCs keep happening the way they would
+# in a mostly idle process, but it allocates too little to refill the heaps.
+def measure_idle_retained(base_rss)
+  return [] if IDLE_STEPS < 1
+
+  puts "idle:  time  retained"
+  IDLE_STEPS.times.map do |step|
+    stop = false
+    trickle = Thread.new do
+      until stop
+        Array.new(8) { Object.new }
+        sleep 0.001
+      end
+    end
+    sleep IDLE_STEP_SECONDS
+    stop = true
+    trickle.join
+
+    retained = get_rss - base_rss
+    puts "%5s %6s %9s" % ["##{step + 1}:", "%gs" % ((step + 1) * IDLE_STEP_SECONDS), format_mib(retained)]
+    retained
+  end
 end
 
 def run_scenario_iteration(count, &scenario)

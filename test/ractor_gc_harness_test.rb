@@ -198,6 +198,7 @@ describe 'Ractor GC harness' do
         'MIN_BENCH_ITRS' => '2',
         'MAX_BENCH_ITRS' => '2',
         'MIN_BENCH_TIME' => '0',
+        'RACTOR_MEM_IDLE_STEP_SECONDS' => '0.01',
         'RESULT_JSON_PATH' => result_path
       ).merge(env)
       stdout, stderr, status = Open3.capture3(env, @ruby, "-I#{File.join(ROOT, 'harness-ractor')}", script, chdir: ROOT)
@@ -362,6 +363,9 @@ describe 'Ractor GC harness' do
       assert_equal 'ractor-local-workload', data['gc_scope']
       assert_equal 'scenario', data['ractor_mode']
       assert_equal 'global', data['ractor_mem_settle']
+      assert data['ractor_mem_keepalive'], 'a scenario parks a keepalive Ractor'
+      assert_equal 3, data['ractor_mem_idle_retained'].length, 'one idle RSS reading per idle step'
+      assert_includes stdout, 'idle:  time  retained'
       assert_equal %w[1 2], data['bench_by_ractors'].keys.sort, 'scenario mode skips count 0'
       assert_equal({ '1' => [], '2' => [] }, data['warmup_by_ractors'], 'scenario mode runs no warmup even with WARMUP_ITRS=1')
       assert_equal %w[1 2], data['gc_by_ractors'].keys.sort
@@ -458,6 +462,7 @@ describe 'Ractor GC harness' do
           'MIN_BENCH_ITRS' => '1',
           'MAX_BENCH_ITRS' => '1',
           'RACTOR_MEM_SETTLE_SLEEP' => '0',
+          'RACTOR_MEM_IDLE_STEP_SECONDS' => '0.01',
           'RACTOR_DEAD_SET_ITEMS' => '5000',
           'RACTOR_IDLE_GARBAGE_ITEMS' => '5000',
           'RACTOR_BACKLOG_MESSAGES' => '500',
